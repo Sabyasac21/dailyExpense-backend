@@ -96,7 +96,7 @@ app.post("/login", async (req, res) => {
 
 // Helper function to get the start of the week (Monday)
 function getMonday(d) {
-  d = new Date();
+  d = new Date(d);
   const day = d.getDay(),
     diff = d.getDate() - day + (day === 0 ? -6 : 1);
   const monday = new Date(d.setDate(diff));
@@ -106,13 +106,16 @@ function getMonday(d) {
 
 app.get("/dashboard/weekly-expenses/:userId", async (req, res) => {
   const { userId } = req.params;
+  const { type } = req.query;
+  const { date } = req.query;
+
   const today = new Date();
-  
 
   try {
-    const startDate = getMonday(today);
-    const endDate = new Date(today);
-    console.log(startDate, endDate);
+    const startDate = getMonday(date);
+    const chDate = new Date(startDate);
+    chDate.setDate(startDate.getDate() + 6);
+    const endDate = chDate > new Date() ? new Date() : chDate;
 
     const user = await Users.findById(userId);
     if (!user) {
@@ -120,6 +123,7 @@ app.get("/dashboard/weekly-expenses/:userId", async (req, res) => {
         .status(404)
         .json({ success: false, message: "User not found" });
     }
+
     const daysOfWeek = [
       "Monday",
       "Tuesday",
@@ -131,34 +135,40 @@ app.get("/dashboard/weekly-expenses/:userId", async (req, res) => {
     ];
 
     // Initialize expensesByDay with all days set to 0
-    const expensesByDay = {}
-    for (day of daysOfWeek){
-      expensesByDay[day]=0
+    const expensesByDay = {};
+    for (day of daysOfWeek) {
+      expensesByDay[day] = 0;
     }
     const weeklyExpenses = user.expenses.filter(
-      (expense) => expense.date >= startDate && expense.date <= endDate
+      (expense) =>
+        expense.date >= startDate &&
+        expense.date <= endDate &&
+        expense.type == type
     );
-    const expenseByCategory = {}
+    const expenseByCategory = {};
     for (const expense of weeklyExpenses) {
       const day = new Date(expense.date).toLocaleDateString("en-US", {
         weekday: "long",
       });
       const category = expense.category;
-      if (!expenseByCategory[category]){
-        expenseByCategory[category] = 0
+      if (!expenseByCategory[category]) {
+        expenseByCategory[category] = 0;
       }
-      
+
       expensesByDay[day] += expense.amount;
-      expenseByCategory[category]+=expense.amount
+      expenseByCategory[category] += expense.amount;
     }
 
-    const totalExpenseCategoryValueSum = Object.values(expenseByCategory).reduce((acc, value)=> (acc+value), 0)
-    
+    const totalExpenseCategoryValueSum = Object.values(
+      expenseByCategory
+    ).reduce((acc, value) => acc + value, 0);
 
-    const mappedData = Object.entries(expenseByCategory).map(([key, value]) => ({
+    const mappedData = Object.entries(expenseByCategory).map(
+      ([key, value]) => ({
         type: key.toLowerCase(),
-        value:value/totalExpenseCategoryValueSum*100,
-      }));
+        value: (value / totalExpenseCategoryValueSum) * 100,
+      })
+    );
     const formattedData = Object.keys(expensesByDay)
       .map((day) => ({
         day,
@@ -166,9 +176,16 @@ app.get("/dashboard/weekly-expenses/:userId", async (req, res) => {
       }))
       .sort((a, b) => daysOfWeek.indexOf(a.day) - daysOfWeek.indexOf(b.day));
 
-      console.log(formattedData);
-
-    res.status(200).json({ success: true, expenses: formattedData, category:mappedData, totExpense:totalExpenseCategoryValueSum });
+    res.status(200).json({
+      success: true,
+      expenses: formattedData,
+      category: mappedData,
+      totExpense: totalExpenseCategoryValueSum,
+      dateSpan: [
+        startDate.toISOString().split("T")[0],
+        endDate.toISOString().split("T")[0],
+      ],
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -201,6 +218,50 @@ app.post("/dashboard/add-expense/:userId", async (req, res) => {
       error: error.message,
     });
   }
+});
+
+// get portfolio status
+app.get("/dashboard/status/:userId", async (req, res) => {
+  const { userId } = req.params;
+  const today = req.query.date;
+
+  try {
+    const user = await Users.findById(userId);
+
+    const startDate = getMonday(today);
+    // const Sunday = new Date()
+    const chDate = new Date(startDate);
+    chDate.setDate(startDate.getDate() + 6);
+    const endDate = chDate > new Date() ? new Date() : chDate;
+
+    if (!user) {
+      res.json({ success: false, message: "User Not Found" });
+    }
+    console.log(startDate, endDate);
+    const userIncome = user.expenses.filter(
+      (expense) =>
+        expense.type === "Income" &&
+        expense.date >= startDate &&
+        expense.date <= endDate
+    );
+    const userExpense = user.expenses.filter(
+      (expense) =>
+        expense.type === "Expense" &&
+        expense.date >= startDate &&
+        expense.date <= endDate
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Status Fetched",
+      incomeData: userIncome,
+      expenseData: userExpense,
+      dateSpan: [
+        startDate.toISOString().split("T")[0],
+        endDate.toISOString().split("T")[0],
+      ],
+    });
+  } catch (error) {}
 });
 
 app.listen(port, () => {
